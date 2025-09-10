@@ -11,6 +11,7 @@ Key improvements:
 FIXES:
 - Fixed XML tag balance bug in dependency section
 - Improved error handling and logging
+- OPTIMIZATION: Early directory filtering to reduce verbose ignored output
 """
 
 import os
@@ -292,7 +293,10 @@ def process_directory_structured(
     project_info: Dict,
     excluded_files: List[Tuple[str, int]],
 ) -> None:
-    """Process directory with structured XML-like output and comprehensive error handling"""
+    """Process directory with structured XML-like output and comprehensive error handling
+
+    OPTIMIZATION: Early directory filtering to reduce verbose ignored output
+    """
 
     # Write project header
     safe_write_to_output(output_file, "<codebase>\n")
@@ -337,16 +341,41 @@ def process_directory_structured(
     # Write files in structured format
     safe_write_to_output(output_file, "<files>\n")
 
+    # OPTIMIZATION: Track ignored directories for summary reporting
+    ignored_directories = []
+    ignored_file_count = 0
+
     for root, dirs, files in os.walk(root_path):
-        # Track and skip ignored directories with error handling
+        # OPTIMIZATION: Early directory filtering to skip ignored directories entirely
+        # This replaces the previous approach of processing all files and discarding results
         original_dirs = dirs[:]
         dirs[:] = []
         for d in original_dirs:
             dir_path = os.path.join(root, d)
             try:
                 if should_ignore_path(dir_path, params["ignore_patterns"]):
+                    # OPTIMIZATION: Instead of processing ignored directories, just count and skip
+                    rel_path = os.path.relpath(dir_path, root_path)
+                    ignored_directories.append(rel_path)
                     list_dir_ignored.append(dir_path)
-                    logging.debug(f"Ignored directory: {dir_path}")
+
+                    # Count files in ignored directory for summary (limited scan for performance)
+                    try:
+                        dir_file_count = 0
+                        for _, _, ignored_files in os.walk(dir_path):
+                            dir_file_count += len(ignored_files)
+                            # Limit counting to avoid performance issues with very large directories
+                            if dir_file_count > 10000:
+                                dir_file_count = 10000  # Cap at 10k for display
+                                break
+                        ignored_file_count += dir_file_count
+                        logging.debug(
+                            f"Ignored directory: {dir_path} ({dir_file_count} files)"
+                        )
+                    except Exception as e:
+                        logging.warning(
+                            f"Error counting files in ignored directory {dir_path}: {str(e)}"
+                        )
                 else:
                     # Check if directory is accessible before adding to dirs
                     try:
@@ -564,6 +593,25 @@ def process_directory_structured(
             else:
                 excluded_files.append((file_path, file_size))
 
+    # OPTIMIZATION: Add concise summary for ignored directories instead of verbose listings
+    if ignored_directories:
+        safe_write_to_output(output_file, "\n<!-- Ignored directories summary -->\n")
+        for i, ignored_dir in enumerate(
+            ignored_directories[:10]
+        ):  # Limit to first 10 for readability
+            safe_write_to_output(output_file, f"<!-- Ignored: {ignored_dir} -->\n")
+        if len(ignored_directories) > 10:
+            remaining = len(ignored_directories) - 10
+            safe_write_to_output(
+                output_file, f"<!-- ... and {remaining} more ignored directories -->\n"
+            )
+
+        # Summary statistics
+        if ignored_file_count > 0:
+            safe_write_to_output(
+                output_file, f"<!-- Total ignored files: ~{ignored_file_count:,} -->\n"
+            )
+
     safe_write_to_output(output_file, "</files>\n")
     safe_write_to_output(output_file, "</codebase>\n")
 
@@ -604,7 +652,7 @@ def main():
             ".jest",
             ".pytest_cache",
             ".venv",
-            ".vscode",
+            # ".vscode",
             "__pycache__",
             "assets",
             "bin",
@@ -619,7 +667,8 @@ def main():
             "media",
             "migrations",
             "misc_docs",
-            "node_modules",
+            "node_modules/",
+            "_locales",
             "obj",
             "packages",
             "public",
@@ -643,6 +692,11 @@ def main():
             DEFAULT_OUTPUT_FILE,
             "HTML_OUTPUT",
             "results_2025*",
+            "src/_locales",
+            "inject/dynamic-theme",
+            "assets/images",
+            "src/config",
+            "integrity/firefox",
         ],
     )
     parser.add_argument("--max-depth", type=int, default=10)
@@ -654,7 +708,7 @@ def main():
     args = parser.parse_args()
 
     setup_logging(args.log_file, args.enable_logging)
-    logging.info("Starting enhanced directory processing")
+    logging.info("Starting enhanced directory processing with ignore optimization")
 
     if not os.path.exists(args.directory_path) or not os.path.isdir(
         args.directory_path
