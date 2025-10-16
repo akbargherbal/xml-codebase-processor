@@ -248,17 +248,57 @@ def should_include_file(file_path: str, file_size: int, params: Dict) -> bool:
     return True
 
 
+# FILE: xml_directory_processor.py
+
+
 def should_ignore_path(path: str, ignore_patterns: List[str]) -> bool:
-    path_parts = Path(path).parts
+    """
+    Checks if a given path should be ignored based on a list of patterns.
+    Supports simple name matching (e.g., '.git'), wildcard matching ('*.pyc'),
+    and multi-segment path matching (e.g., 'integrity/firefox').
+    """
+    # Ensure fnmatch is available, as it's crucial for this function
+    try:
+        import fnmatch
+    except ImportError:
+        # Fallback to basic string matching if fnmatch is not available
+        logging.error(
+            "fnmatch module not found. Falling back to basic ignore matching."
+        )
+        for pattern in ignore_patterns:
+            if pattern in path:
+                return True
+        return False
+
+    path_obj = Path(path)
+    # Use parts for robust, cross-platform path component access
+    path_parts = path_obj.parts
 
     for pattern in ignore_patterns:
-        for part in path_parts:
-            if pattern.endswith("/"):
-                if part == pattern[:-1]:
+        # CORRECTED LINE: Strip both potential separators to correctly handle 'dir/' and 'dir\'
+        clean_pattern = pattern.rstrip("/\\")
+
+        # Case 1: Simple pattern (no path separators). Check against individual parts.
+        # This is fast and covers the most common cases like '.git', '__pycache__'.
+        if os.sep not in clean_pattern and "/" not in clean_pattern:
+            for part in path_parts:
+                if fnmatch.fnmatch(part, clean_pattern):
                     return True
-            else:
-                if fnmatch.fnmatch(part, pattern) or pattern in part:
-                    return True
+
+        # Case 2: Multi-segment pattern (e.g., 'integrity/firefox').
+        # This requires checking against joined path segments.
+        else:
+            # Normalize pattern separators to match the current OS for comparison
+            norm_pattern = clean_pattern.replace("/", os.sep).replace("\\", os.sep)
+
+            # Check all possible contiguous sub-paths
+            # Example: for path ('a', 'b', 'c'), segments are 'a', 'b', 'c', 'a/b', 'b/c', 'a/b/c'
+            for i in range(len(path_parts)):
+                for j in range(i, len(path_parts)):
+                    sub_path = os.sep.join(path_parts[i : j + 1])
+                    if fnmatch.fnmatch(sub_path, norm_pattern):
+                        return True
+
     return False
 
 
@@ -639,6 +679,7 @@ def main():
             ".exe",
             ".dll",
             ".so",
+            "GEMINI.md",
         ],
     )
     parser.add_argument(
@@ -667,11 +708,13 @@ def main():
             "media",
             "migrations",
             "misc_docs",
+            "docs/",
+            "temp/",
             "node_modules/",
             "_locales",
             "obj",
             "packages",
-            "public",
+            # "public",
             "staticfiles",
             "tabs",
             "target",
@@ -697,6 +740,10 @@ def main():
             "assets/images",
             "src/config",
             "integrity/firefox",
+            "locale/",
+            "pdfjs/",
+            "htmlcov/",
+            ".gemini/",
         ],
     )
     parser.add_argument("--max-depth", type=int, default=10)
