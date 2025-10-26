@@ -1,3 +1,7 @@
+# FILE PATH: xml_directory_processor.py
+# LOCATION: Root directory of your project
+# DESCRIPTION: Main script for processing directories into LLM-friendly XML format
+
 """
 Enhanced directory processor optimized for LLM parsing and codebase recreation.
 Key improvements:
@@ -12,6 +16,7 @@ FIXES:
 - Fixed XML tag balance bug in dependency section
 - Improved error handling and logging
 - OPTIMIZATION: Early directory filtering to reduce verbose ignored output
+- NEW FEATURE: Added --include and --exclude flags for dynamic path filtering
 """
 
 import os
@@ -43,6 +48,7 @@ list_dir_ignored = []
 
 
 def setup_logging(log_file: str, enable_logging: bool = True):
+    """Configure logging with specified settings."""
     if enable_logging:
         logging.basicConfig(
             filename=log_file,
@@ -55,12 +61,13 @@ def setup_logging(log_file: str, enable_logging: bool = True):
 
 
 def count_tokens(text: str) -> int:
+    """Count tokens in text using tiktoken."""
     encoding = tiktoken.get_encoding("cl100k_base")
     return len(encoding.encode(text))
 
 
 def detect_project_type(root_path: str) -> Dict[str, any]:
-    """Detect project type and key files for LLM context with comprehensive error handling"""
+    """Detect project type and key files for LLM context with comprehensive error handling."""
     project_info = {
         "type": "unknown",
         "language": "mixed",
@@ -172,7 +179,7 @@ def detect_project_type(root_path: str) -> Dict[str, any]:
 
 
 def get_file_metadata(file_path: str) -> Dict[str, any]:
-    """Extract metadata useful for recreation"""
+    """Extract metadata useful for recreation."""
     try:
         stat = os.stat(file_path)
         ext = os.path.splitext(file_path)[1]
@@ -201,7 +208,7 @@ def get_file_metadata(file_path: str) -> Dict[str, any]:
 
 
 def extract_imports_dependencies(content: str, file_path: str) -> List[str]:
-    """Extract import statements for dependency mapping"""
+    """Extract import statements for dependency mapping."""
     ext = os.path.splitext(file_path)[1].lower()
     imports = []
 
@@ -231,6 +238,7 @@ def extract_imports_dependencies(content: str, file_path: str) -> List[str]:
 
 
 def should_include_file(file_path: str, file_size: int, params: Dict) -> bool:
+    """Determine if a file should be included based on extension and size filters."""
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext in params["exclude_extensions"]:
@@ -248,51 +256,76 @@ def should_include_file(file_path: str, file_size: int, params: Dict) -> bool:
     return True
 
 
-# FILE: xml_directory_processor.py
-
-
 def should_ignore_path(path: str, ignore_patterns: List[str]) -> bool:
     """
     Checks if a given path should be ignored based on a list of patterns.
     Supports simple name matching (e.g., '.git'), wildcard matching ('*.pyc'),
     and multi-segment path matching (e.g., 'integrity/firefox').
     """
-    # Ensure fnmatch is available, as it's crucial for this function
-    try:
-        import fnmatch
-    except ImportError:
-        # Fallback to basic string matching if fnmatch is not available
-        logging.error(
-            "fnmatch module not found. Falling back to basic ignore matching."
-        )
-        for pattern in ignore_patterns:
-            if pattern in path:
-                return True
-        return False
-
     path_obj = Path(path)
-    # Use parts for robust, cross-platform path component access
     path_parts = path_obj.parts
 
     for pattern in ignore_patterns:
-        # CORRECTED LINE: Strip both potential separators to correctly handle 'dir/' and 'dir\'
+        # Strip trailing slashes
         clean_pattern = pattern.rstrip("/\\")
 
-        # Case 1: Simple pattern (no path separators). Check against individual parts.
-        # This is fast and covers the most common cases like '.git', '__pycache__'.
+        # Case 1: Simple pattern (no path separators) - check individual components
         if os.sep not in clean_pattern and "/" not in clean_pattern:
             for part in path_parts:
                 if fnmatch.fnmatch(part, clean_pattern):
                     return True
 
-        # Case 2: Multi-segment pattern (e.g., 'integrity/firefox').
-        # This requires checking against joined path segments.
+        # Case 2: Multi-segment pattern - check against full path
         else:
-            # Normalize pattern separators to match the current OS for comparison
+            # Normalize pattern separators to match current OS
             norm_pattern = clean_pattern.replace("/", os.sep).replace("\\", os.sep)
 
             # Check all possible contiguous sub-paths
-            # Example: for path ('a', 'b', 'c'), segments are 'a', 'b', 'c', 'a/b', 'b/c', 'a/b/c'
+            for i in range(len(path_parts)):
+                for j in range(i, len(path_parts)):
+                    sub_path = os.sep.join(path_parts[i : j + 1])
+                    if fnmatch.fnmatch(sub_path, norm_pattern):
+                        return True
+
+    return False
+
+
+def should_process_path(path: str, include_patterns: List[str]) -> bool:
+    """
+    Checks if a path should be processed based on include patterns.
+    If no include patterns provided, all paths are processed by default.
+
+    Matches against full path and individual path components.
+    """
+    if not include_patterns:
+        return True  # No include filter means process everything
+
+    path_obj = Path(path)
+    path_parts = path_obj.parts
+    path_str = str(path_obj)
+
+    for pattern in include_patterns:
+        clean_pattern = pattern.rstrip("/\\")
+
+        # Case 1: Simple pattern (no separators) - match against parts
+        if os.sep not in clean_pattern and "/" not in clean_pattern:
+            for part in path_parts:
+                if fnmatch.fnmatch(part, clean_pattern):
+                    return True
+
+        # Case 2: Multi-segment or full path pattern
+        else:
+            norm_pattern = clean_pattern.replace("/", os.sep).replace("\\", os.sep)
+
+            # Check if path matches pattern
+            if fnmatch.fnmatch(path_str, norm_pattern):
+                return True
+
+            # Check if path starts with pattern (for directory inclusion)
+            if path_str.startswith(norm_pattern):
+                return True
+
+            # Check if any sub-path matches
             for i in range(len(path_parts)):
                 for j in range(i, len(path_parts)):
                     sub_path = os.sep.join(path_parts[i : j + 1])
@@ -303,6 +336,7 @@ def should_ignore_path(path: str, ignore_patterns: List[str]) -> bool:
 
 
 def convert_notebook_to_markdown(notebook_path: str) -> str:
+    """Convert Jupyter notebook to markdown format."""
     logging.info(f"Converting notebook to markdown: {notebook_path}")
     markdown_exporter = nbconvert.MarkdownExporter()
     body, _ = markdown_exporter.from_filename(notebook_path)
@@ -316,7 +350,7 @@ def convert_notebook_to_markdown(notebook_path: str) -> str:
 
 
 def safe_write_to_output(output_file, content: str):
-    """Safely write content to output file with Windows encoding handling"""
+    """Safely write content to output file with Windows encoding handling."""
     try:
         output_file.write(content)
     except UnicodeEncodeError:
@@ -333,9 +367,11 @@ def process_directory_structured(
     project_info: Dict,
     excluded_files: List[Tuple[str, int]],
 ) -> None:
-    """Process directory with structured XML-like output and comprehensive error handling
+    """
+    Process directory with structured XML-like output and comprehensive error handling.
 
-    OPTIMIZATION: Early directory filtering to reduce verbose ignored output
+    OPTIMIZATION: Early directory filtering to reduce verbose ignored output.
+    NEW: Applies include/exclude filtering based on command-line arguments.
     """
 
     # Write project header
@@ -360,7 +396,6 @@ def process_directory_structured(
         for dep in project_info["dependency_files"]:
             try:
                 rel_dep = os.path.relpath(dep, root_path)
-                # FIXED: Use consistent XML tag naming - changed from <file> to <dep>
                 safe_write_to_output(output_file, f"  <dep>{rel_dep}</dep>\n")
             except Exception as e:
                 logging.error(f"Error processing dependency {dep}: {str(e)}")
@@ -381,32 +416,40 @@ def process_directory_structured(
     # Write files in structured format
     safe_write_to_output(output_file, "<files>\n")
 
-    # OPTIMIZATION: Track ignored directories for summary reporting
+    # Track ignored directories for summary reporting
     ignored_directories = []
     ignored_file_count = 0
 
     for root, dirs, files in os.walk(root_path):
-        # OPTIMIZATION: Early directory filtering to skip ignored directories entirely
-        # This replaces the previous approach of processing all files and discarding results
+        # Early directory filtering with include/exclude logic
         original_dirs = dirs[:]
         dirs[:] = []
+
         for d in original_dirs:
             dir_path = os.path.join(root, d)
+
             try:
+                # Step 1: Check inclusion filter (if specified)
+                if not should_process_path(dir_path, params["include"]):
+                    logging.debug(
+                        f"Skipping directory (not in include list): {dir_path}"
+                    )
+                    continue
+
+                # Step 2: Check exclusion filter
                 if should_ignore_path(dir_path, params["ignore_patterns"]):
-                    # OPTIMIZATION: Instead of processing ignored directories, just count and skip
                     rel_path = os.path.relpath(dir_path, root_path)
                     ignored_directories.append(rel_path)
                     list_dir_ignored.append(dir_path)
 
-                    # Count files in ignored directory for summary (limited scan for performance)
+                    # Count files in ignored directory for summary
                     try:
                         dir_file_count = 0
                         for _, _, ignored_files in os.walk(dir_path):
                             dir_file_count += len(ignored_files)
-                            # Limit counting to avoid performance issues with very large directories
+                            # Limit counting to avoid performance issues
                             if dir_file_count > 10000:
-                                dir_file_count = 10000  # Cap at 10k for display
+                                dir_file_count = 10000
                                 break
                         ignored_file_count += dir_file_count
                         logging.debug(
@@ -416,37 +459,38 @@ def process_directory_structured(
                         logging.warning(
                             f"Error counting files in ignored directory {dir_path}: {str(e)}"
                         )
-                else:
-                    # Check if directory is accessible before adding to dirs
+                    continue
+
+                # Step 3: Check accessibility
+                try:
+                    os.listdir(dir_path)
+                    dirs.append(d)  # Add to list for traversal
+                except PermissionError:
+                    logging.error(f"Permission denied accessing directory: {dir_path}")
                     try:
-                        os.listdir(dir_path)
-                        dirs.append(d)
-                    except PermissionError:
-                        logging.error(
-                            f"Permission denied accessing directory: {dir_path}"
+                        rel_path = os.path.relpath(dir_path, root_path)
+                        safe_write_to_output(
+                            output_file,
+                            f"<directory path='{rel_path}' error='permission_denied'></directory>\n",
                         )
-                        try:
-                            rel_path = os.path.relpath(dir_path, root_path)
-                            safe_write_to_output(
-                                output_file,
-                                f"<directory path='{rel_path}' error='permission_denied'></directory>\n",
-                            )
-                        except:
-                            pass  # Skip if path operations fail
-                    except Exception as e:
-                        logging.error(f"Error accessing directory {dir_path}: {str(e)}")
-                        try:
-                            rel_path = os.path.relpath(dir_path, root_path)
-                            safe_write_to_output(
-                                output_file,
-                                f"<directory path='{rel_path}' error='access_failed'></directory>\n",
-                            )
-                        except:
-                            pass
+                    except:
+                        pass
+                except Exception as e:
+                    logging.error(f"Error accessing directory {dir_path}: {str(e)}")
+                    try:
+                        rel_path = os.path.relpath(dir_path, root_path)
+                        safe_write_to_output(
+                            output_file,
+                            f"<directory path='{rel_path}' error='access_failed'></directory>\n",
+                        )
+                    except:
+                        pass
+
             except Exception as e:
                 logging.error(f"Error processing directory {dir_path}: {str(e)}")
                 continue
 
+        # Process files in current directory
         for file in sorted(files):
             file_path = os.path.join(root, file)
 
@@ -456,7 +500,14 @@ def process_directory_structured(
                 logging.error(f"Error getting relative path for {file_path}: {str(e)}")
                 continue
 
-            if should_ignore_path(file_path, params["ignore_patterns"]):
+            # Apply include/exclude filters to files
+            include_patterns = params.get("include", [])
+            if not should_process_path(file_path, include_patterns):
+                logging.debug(f"Skipping file (not in include list): {file_path}")
+                continue
+
+            ignore_patterns = params.get("ignore_patterns", [])
+            if should_ignore_path(file_path, ignore_patterns):
                 list_dir_ignored.append(file_path)
                 logging.debug(f"Ignored file: {file_path}")
                 continue
@@ -530,7 +581,6 @@ def process_directory_structured(
                             break
 
                     if content is None:
-                        # File could not be read with any encoding
                         try:
                             safe_write_to_output(
                                 output_file,
@@ -564,24 +614,22 @@ def process_directory_structured(
                             )
                             imports = []
 
-                        # Write structured file entry with Windows encoding safety
+                        # Write structured file entry
                         try:
                             file_header = f"<file path='{rel_path}' size='{file_size}' ext='{metadata['extension']}'"
                             if metadata.get("executable"):
                                 file_header += " executable='true'"
                             if imports:
-                                # Sanitize imports for XML attributes and Windows console
+                                # Sanitize imports for XML attributes
                                 clean_imports = []
                                 for imp in imports[:5]:
                                     try:
                                         clean_imp = imp.replace("'", "&apos;").replace(
                                             '"', "&quot;"
                                         )
-                                        # Ensure ASCII compatibility for Windows
                                         clean_imp.encode("ascii", "ignore")
                                         clean_imports.append(clean_imp)
                                     except (UnicodeEncodeError, UnicodeError):
-                                        # Skip problematic import names on Windows
                                         continue
                                 if clean_imports:
                                     file_header += (
@@ -590,8 +638,6 @@ def process_directory_structured(
                             file_header += ">\n"
 
                             safe_write_to_output(output_file, file_header)
-
-                            # Content with clear delimiters
                             safe_write_to_output(output_file, "```\n")
                             safe_write_to_output(output_file, content)
                             if not content.endswith("\n"):
@@ -633,20 +679,16 @@ def process_directory_structured(
             else:
                 excluded_files.append((file_path, file_size))
 
-    # OPTIMIZATION: Add concise summary for ignored directories instead of verbose listings
+    # Add summary for ignored directories
     if ignored_directories:
         safe_write_to_output(output_file, "\n<!-- Ignored directories summary -->\n")
-        for i, ignored_dir in enumerate(
-            ignored_directories[:10]
-        ):  # Limit to first 10 for readability
+        for i, ignored_dir in enumerate(ignored_directories[:10]):
             safe_write_to_output(output_file, f"<!-- Ignored: {ignored_dir} -->\n")
         if len(ignored_directories) > 10:
             remaining = len(ignored_directories) - 10
             safe_write_to_output(
                 output_file, f"<!-- ... and {remaining} more ignored directories -->\n"
             )
-
-        # Summary statistics
         if ignored_file_count > 0:
             safe_write_to_output(
                 output_file, f"<!-- Total ignored files: ~{ignored_file_count:,} -->\n"
@@ -656,14 +698,126 @@ def process_directory_structured(
     safe_write_to_output(output_file, "</codebase>\n")
 
 
+def parse_patterns(pattern_list: List[str]) -> List[str]:
+    """
+    Parse pattern list handling both space-separated and comma-separated values.
+    Returns a cleaned list of patterns with whitespace stripped.
+    """
+    processed = []
+    for item in pattern_list:
+        # Split on commas and extend the list
+        processed.extend(item.split(","))
+    # Strip whitespace and filter empty strings
+    return [p.strip() for p in processed if p.strip()]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Process directory for optimal LLM parsing and codebase recreation"
     )
-    parser.add_argument("--enable-logging", action="store_true", default=False)
+
+    # Positional argument
     parser.add_argument("directory_path", help="Path to the directory to process")
-    parser.add_argument("--token-limit", type=int, default=10_000)
-    parser.add_argument("--json-size-threshold", type=int, default=1024 * 1024)
+
+    # Output configuration
+    parser.add_argument(
+        "--output",
+        default=DEFAULT_OUTPUT_FILE,
+        help=f"Output file path (default: {DEFAULT_OUTPUT_FILE})",
+    )
+
+    # NEW: Include/Exclude filters
+    parser.add_argument(
+        "--include",
+        nargs="+",
+        default=[],
+        help="Patterns for directories/files to include (e.g., 'src', '*.py'). "
+        "Accepts space-separated or comma-separated values. "
+        "If not specified, all paths are included by default.",
+    )
+    parser.add_argument(
+        "--exclude",
+        nargs="+",
+        default=[],
+        help="Additional patterns to exclude beyond defaults (e.g., 'docs', '*.tmp'). "
+        "Accepts space-separated or comma-separated values. "
+        "These are added to the default ignore patterns.",
+    )
+
+    # Original ignore patterns (preserved for backward compatibility)
+    parser.add_argument(
+        "--ignore-patterns",
+        nargs="+",
+        default=[
+            ".env",
+            ".git",
+            ".history",
+            ".idea",
+            ".jest",
+            ".pytest_cache",
+            ".venv",
+            "__pycache__",
+            "assets",
+            "bin",
+            "bower_components",
+            "build",
+            "coverage",
+            "dist",
+            "document",
+            "generated",
+            "graphics",
+            "images",
+            "media",
+            "migrations",
+            "misc_docs",
+            "node_modules",
+            "obj",
+            "packages",
+            "staticfiles",
+            "tabs",
+            "target",
+            "vendor",
+            "venv",
+            "package-lock.json",
+            DEFAULT_OUTPUT_FILE,
+            "htmlcov/",
+            ".gemini/",
+        ],
+        help="Base ignore patterns. Can be completely overridden if needed.",
+    )
+
+    # Logging configuration
+    parser.add_argument(
+        "--enable-logging",
+        action="store_true",
+        default=False,
+        help="Enable detailed logging to file",
+    )
+    parser.add_argument(
+        "--log-file",
+        default="directory_processing.log",
+        help="Log file path (default: directory_processing.log)",
+    )
+
+    # File filtering options
+    parser.add_argument(
+        "--token-limit",
+        type=int,
+        default=10_000,
+        help="Maximum tokens per file (default: 10,000)",
+    )
+    parser.add_argument(
+        "--json-size-threshold",
+        type=int,
+        default=1024 * 1024,
+        help="Maximum JSON file size in bytes (default: 1MB)",
+    )
+    parser.add_argument(
+        "--max-file-size",
+        type=int,
+        default=10 * 1024 * 1024,
+        help="Maximum file size in bytes (default: 10MB)",
+    )
     parser.add_argument(
         "--exclude-extensions",
         nargs="+",
@@ -681,83 +835,50 @@ def main():
             ".so",
             "GEMINI.md",
         ],
+        help="File extensions to exclude",
+    )
+
+    # Advanced options
+    parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=10,
+        help="Maximum directory depth to traverse (default: 10)",
     )
     parser.add_argument(
-        "--ignore-patterns",
-        nargs="+",
-        default=[
-            ".env",
-            ".git",
-            ".history",
-            ".idea",
-            ".jest",
-            ".pytest_cache",
-            ".venv",
-            # ".vscode",
-            "__pycache__",
-            "assets",
-            "bin",
-            "bower_components",
-            "build",
-            "coverage",
-            "dist",
-            "document",
-            "generated",
-            "graphics",
-            "images",
-            "media",
-            "migrations",
-            "misc_docs",
-            # "docs/",
-            "temp/",
-            "node_modules/",
-            "node_modules",
-            "_locales",
-            "obj",
-            "packages",
-            # "public",
-            "staticfiles",
-            "tabs",
-            "target",
-            "test-results/",
-            "LEGACY/",
-            "/FastAPI",
-            "SESSION_HANDOVER/",
-            "utility_scripts/",
-            "logs/",
-            "staticfiles/",
-            "vendor",
-            "venv",
-            "BUGS/",
-            "TODO/",
-            "TUTORIALS/",
-            "QUIZ_COLLECTIONS/",
-            "package-lock.json",
-            DEFAULT_OUTPUT_FILE,
-            "HTML_OUTPUT",
-            "results_2025*",
-            "src/_locales",
-            "inject/dynamic-theme",
-            "assets/images",
-            "src/config",
-            "integrity/firefox",
-            "locale/",
-            "pdfjs/",
-            "htmlcov/",
-            ".gemini/",
-        ],
+        "--split-threshold",
+        type=int,
+        default=1000000,
+        help="Token threshold for suggesting file splitting (default: 1,000,000)",
     )
-    parser.add_argument("--max-depth", type=int, default=10)
-    parser.add_argument("--max-file-size", type=int, default=10 * 1024 * 1024)
-    parser.add_argument("--output", default=DEFAULT_OUTPUT_FILE)
-    parser.add_argument("--split-threshold", type=int, default=1000000)
-    parser.add_argument("--log-file", default="directory_processing.log")
 
     args = parser.parse_args()
 
+    # Setup logging
     setup_logging(args.log_file, args.enable_logging)
-    logging.info("Starting enhanced directory processing with ignore optimization")
 
+    # Parse and combine patterns
+    user_include_patterns = parse_patterns(args.include)
+    user_exclude_patterns = parse_patterns(args.exclude)
+
+    # Combine default ignore patterns with user-specified exclusions
+    final_ignore_patterns = args.ignore_patterns + user_exclude_patterns
+
+    # Log configuration
+    if user_include_patterns:
+        logging.info(f"Include patterns: {user_include_patterns}")
+    if user_exclude_patterns:
+        logging.info(f"Additional exclude patterns: {user_exclude_patterns}")
+    logging.info(f"Total ignore patterns: {len(final_ignore_patterns)}")
+
+    # Create params dictionary
+    params = vars(args)
+    params["ignore_patterns"] = final_ignore_patterns
+    params["include"] = user_include_patterns
+
+    logging.info("Starting enhanced directory processing with include/exclude filters")
+
+    # Validate directory
     if not os.path.exists(args.directory_path) or not os.path.isdir(
         args.directory_path
     ):
@@ -767,11 +888,13 @@ def main():
 
     # Detect project structure
     project_info = detect_project_type(args.directory_path)
-    logging.info(f"Detected project type: {project_info}")
+    logging.info(
+        f"Detected project type: {project_info['type']}, language: {project_info['language']}"
+    )
 
-    params = vars(args)
     excluded_files = []
 
+    # Process directory
     try:
         with open(args.output, "w", encoding="utf-8") as output_file:
             process_directory_structured(
@@ -782,7 +905,7 @@ def main():
         print(f"Error during processing: {str(e)}")
         sys.exit(1)
 
-    # Token counting and splitting logic
+    # Token counting and analysis
     try:
         with open(args.output, "r", encoding="utf-8") as f:
             content = f.read()
@@ -793,15 +916,28 @@ def main():
         sys.exit(1)
 
     logging.info(f"Total tokens: {total_tokens}")
-    print(f"Processing complete. Total tokens: {total_tokens}")
+    print(f"\nProcessing complete!")
+    print(f"Total tokens: {total_tokens:,}")
+    print(f"Output written to: {args.output}")
 
-    # Show ignored directories/files like the original
+    # Show filtering summary
+    if user_include_patterns:
+        print(f"\nInclude filters applied: {', '.join(user_include_patterns)}")
+    if user_exclude_patterns:
+        print(f"Additional exclusions: {', '.join(user_exclude_patterns)}")
+
+    # Show ignored directories/files summary
     if list_dir_ignored:
-        print("Ignored directories/files:")
-        for ignored in list_dir_ignored[:10]:  # Limit output
-            print(f"- {ignored}")
-        if len(list_dir_ignored) > 10:
-            print(f"... and {len(list_dir_ignored) - 10} more")
+        print(f"\nIgnored {len(list_dir_ignored)} paths")
+        if args.enable_logging:
+            print("(See log file for complete list)")
+        else:
+            # Show first few examples
+            print("Examples:")
+            for ignored in list_dir_ignored[:5]:
+                print(f"  - {ignored}")
+            if len(list_dir_ignored) > 5:
+                print(f"  ... and {len(list_dir_ignored) - 5} more")
 
     # Show excluded files summary
     if excluded_files:
@@ -809,9 +945,22 @@ def main():
         if args.enable_logging:
             print(f"See {args.log_file} for detailed exclusion reasons")
 
+    # Suggest splitting if needed
     if total_tokens > args.split_threshold:
-        logging.info("Output exceeds split threshold. Consider splitting.")
-        print("Note: Output exceeds recommended token limit for single LLM context.")
+        logging.info(
+            f"Output exceeds split threshold ({args.split_threshold:,} tokens)"
+        )
+        print(f"\n⚠ Warning: Output exceeds {args.split_threshold:,} tokens.")
+        print(
+            "Consider using --include to process specific directories in separate runs."
+        )
+        print("\nExamples:")
+        print(
+            f"  python {sys.argv[0]} {args.directory_path} --include src --output src_only.txt"
+        )
+        print(
+            f"  python {sys.argv[0]} {args.directory_path} --include tests --output tests_only.txt"
+        )
 
 
 if __name__ == "__main__":

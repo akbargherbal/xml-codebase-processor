@@ -173,6 +173,7 @@ def standard_processing_params():
             "dist",
             "build",
         ],
+        "include": [],  # ← ADD THIS LINE
         "exclude_extensions": [
             ".csv",
             ".pt",
