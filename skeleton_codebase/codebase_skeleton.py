@@ -57,28 +57,23 @@ class Config:
     exclude: Set[str] = field(default_factory=set)
     max_tokens: int = 50000
     show_deps: bool = False
+    show_excluded: bool = False  # NEW LINE: Show detailed excluded directories list
     output: Optional[str] = None
 
     # Smart defaults
     DEFAULT_FULL_PATTERNS = {
         "README.md",
         "package.json",
-        "pyproject.toml",
+        "requirements.txt",  # ← Added
         "setup.py",
         "setup.cfg",
-        "Cargo.toml",
-        "Cargo.lock",
-        "go.mod",
-        "go.sum",
+        "pyproject.toml",  # ← Added
         "tsconfig.json",
-        ".env.example",
         "docker-compose.yml",
         "Dockerfile",
-        "Makefile",
         ".gitignore",
         ".dockerignore",
         "config.yaml",
-        "requirements.txt",
     }
 
     DEFAULT_EXCLUDE_PATTERNS = {
@@ -118,8 +113,8 @@ class Config:
         "*.swo",
         ".pkl",
         ".parquet",
-        # NOTE: .gitignore and .dockerignore are NOT here
-        # They are in DEFAULT_FULL_PATTERNS and should be included
+        # NOTE: .gitignore and .dockerignore are deliberately NOT in this list
+        # They are config files in DEFAULT_FULL_PATTERNS and should be included
     }
 
     EXCLUDE_DIRS = {
@@ -807,7 +802,7 @@ class SkeletonGenerator:
                 p.match(pattern) for p in rel_path.parents
             ):
                 return True
-            if pattern in str(rel_path):
+            if "*" not in pattern and pattern in rel_path.parts:
                 return True
 
         # Check if in excluded directory name
@@ -865,18 +860,18 @@ class SkeletonGenerator:
             if not path.is_file():
                 continue
 
-            # Check if file should have full content FIRST (before exclusion)
-            # This allows config files like .gitignore to be included even if they match exclusion patterns
-            should_full = self.should_full_content(path)
-
-            # Only check exclusion if it's not a full-content file
-            if not should_full and self.should_exclude(path):
+            # Check exclusion FIRST - excluded directories are completely ignored
+            # regardless of file type or content
+            if self.should_exclude(path):
                 parent = path.parent.relative_to(self.root)
                 # Normalize path for output
                 parent_str = str(parent).replace("\\", "/")
                 excluded_dirs[parent_str] += 1
                 self.stats["excluded"] += 1
-                continue
+                continue  # Stop processing this file completely
+
+            # Now check if remaining files need full content
+            should_full = self.should_full_content(path)
 
             # Try to read the file
             try:
@@ -943,8 +938,8 @@ class SkeletonGenerator:
                 output.append("</file>")
             output.append("\n</skeleton>\n")
 
-        # Excluded summary
-        if excluded_dirs:
+        # Excluded summary (optional, controlled by --show-excluded flag)
+        if excluded_dirs and self.config.show_excluded:
             output.append("<excluded>")
             for dir_path, count in sorted(excluded_dirs.items()):
                 output.append(f"<directory path='{dir_path}' files='{count}'/>")
@@ -1005,12 +1000,19 @@ Install optional dependencies:
     parser.add_argument(
         "--exclude", type=str, default="", help="Comma-separated patterns to exclude"
     )
+
     parser.add_argument(
         "--max-tokens", type=int, default=50000, help="Maximum token budget"
     )
     parser.add_argument(
         "--show-deps", action="store_true", help="Show dependency graph (future)"
     )
+    parser.add_argument(
+        "--show-excluded",
+        action="store_true",
+        help="Include detailed excluded directories list in output (default: False)",
+    )
+
     parser.add_argument("--output", type=str, help="Output file (default: stdout)")
 
     args = parser.parse_args()
