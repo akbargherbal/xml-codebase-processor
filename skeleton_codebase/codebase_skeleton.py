@@ -118,8 +118,8 @@ class Config:
     }
 
     EXCLUDE_DIRS = {
-        "tests",
-        "test",
+        # "tests",
+        # "test",
         "__tests__",
         "migrations",
         "db/migrate",
