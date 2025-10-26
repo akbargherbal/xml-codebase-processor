@@ -69,7 +69,7 @@ class TestEncodingHandling:
                 f.write(b"Valid text\x80\x81\x82invalid utf-8")
 
             params = {
-                "ignore_patterns": [],
+                "include": [],
                 "exclude_extensions": [],
                 "json_size_threshold": 1024,
                 "max_file_size": 1024 * 1024,

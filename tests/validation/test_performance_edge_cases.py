@@ -9,15 +9,20 @@ from xml_directory_processor import process_directory_structured, count_tokens
 class TestPerformanceEdgeCases:
     """Test performance with edge cases that could cause hangs or excessive memory usage"""
 
-    def test_timeout_protection_large_file(self, large_test_project):
+    def test_timeout_protection_large_file(
+        self, large_test_project, standard_processing_params
+    ):
         """Test that processing completes within reasonable time limits"""
-        params = {
-            "ignore_patterns": [],
-            "exclude_extensions": [],
-            "json_size_threshold": 10 * 1024 * 1024,
-            "max_file_size": 50 * 1024 * 1024,  # Large limit
-            "token_limit": 100000,  # High limit
-        }
+        # Use standard params as base and customize for this test
+        params = standard_processing_params.copy()
+        params.update(
+            {
+                "json_size_threshold": 10 * 1024 * 1024,
+                "max_file_size": 50 * 1024 * 1024,  # Large limit
+                "token_limit": 100000,  # High limit
+            }
+        )
+
         project_info = {
             "type": "python",
             "language": "python",
@@ -28,7 +33,9 @@ class TestPerformanceEdgeCases:
             "build_files": [],
         }
 
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as output:
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".txt"
+        ) as output:
             output_path = output.name
 
         try:
@@ -54,25 +61,23 @@ class TestPerformanceEdgeCases:
 
         finally:
             if os.path.exists(output_path):
-                os.unlink(output_path)
+                try:
+                    os.unlink(output_path)
+                except:
+                    pass  # Windows cleanup might fail
 
-    def test_extremely_long_filename_handling(self):
+    def test_extremely_long_filename_handling(self, standard_processing_params):
         """Test handling of files with very long names"""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create file with maximum path length (Windows has ~260 char limit)
             long_name = "a" * 100 + ".py"  # Reasonable length that won't hit OS limits
             long_file = os.path.join(tmpdir, long_name)
 
-            with open(long_file, "w") as f:
+            with open(long_file, "w", encoding="utf-8") as f:
                 f.write("print('test')")
 
-            params = {
-                "ignore_patterns": [],
-                "exclude_extensions": [],
-                "json_size_threshold": 1024,
-                "max_file_size": 1024 * 1024,
-                "token_limit": 10000,
-            }
+            params = standard_processing_params.copy()
+
             project_info = {
                 "type": "python",
                 "language": "python",
@@ -83,7 +88,9 @@ class TestPerformanceEdgeCases:
                 "build_files": [],
             }
 
-            with tempfile.NamedTemporaryFile(mode="w", delete=False) as output:
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".txt"
+            ) as output:
                 output_path = output.name
 
             try:
@@ -92,14 +99,17 @@ class TestPerformanceEdgeCases:
                         tmpdir, params, outfile, project_info, []
                     )
 
-                with open(output_path, "r") as f:
+                with open(output_path, "r", encoding="utf-8") as f:
                     content = f.read()
                     assert long_name in content
             finally:
                 if os.path.exists(output_path):
-                    os.unlink(output_path)
+                    try:
+                        os.unlink(output_path)
+                    except:
+                        pass
 
-    def test_deep_directory_nesting(self):
+    def test_deep_directory_nesting(self, standard_processing_params):
         """Test handling of deeply nested directory structures"""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create nested structure (reasonable depth)
@@ -110,16 +120,11 @@ class TestPerformanceEdgeCases:
 
             # Add file at deepest level
             deep_file = os.path.join(current_path, "deep.py")
-            with open(deep_file, "w") as f:
+            with open(deep_file, "w", encoding="utf-8") as f:
                 f.write("print('deep file')")
 
-            params = {
-                "ignore_patterns": [],
-                "exclude_extensions": [],
-                "json_size_threshold": 1024,
-                "max_file_size": 1024 * 1024,
-                "token_limit": 10000,
-            }
+            params = standard_processing_params.copy()
+
             project_info = {
                 "type": "python",
                 "language": "python",
@@ -130,7 +135,9 @@ class TestPerformanceEdgeCases:
                 "build_files": [],
             }
 
-            with tempfile.NamedTemporaryFile(mode="w", delete=False) as output:
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".txt"
+            ) as output:
                 output_path = output.name
 
             try:
@@ -144,12 +151,15 @@ class TestPerformanceEdgeCases:
                 # Should handle deep nesting without excessive time
                 assert end_time - start_time < 10.0
 
-                with open(output_path, "r") as f:
+                with open(output_path, "r", encoding="utf-8") as f:
                     content = f.read()
                     assert "deep.py" in content
             finally:
                 if os.path.exists(output_path):
-                    os.unlink(output_path)
+                    try:
+                        os.unlink(output_path)
+                    except:
+                        pass
 
     def test_token_counting_performance_repeated(self):
         """Test token counting performance with repeated calls"""
@@ -174,7 +184,7 @@ class TestPerformanceEdgeCases:
             assert tokens > 0, f"Should return positive token count for iteration {i}"
 
     @pytest.mark.slow
-    def test_resource_cleanup_after_errors(self):
+    def test_resource_cleanup_after_errors(self, standard_processing_params):
         """Verify that resources are cleaned up properly after processing errors"""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create files that might cause processing errors
@@ -197,13 +207,8 @@ class TestPerformanceEdgeCases:
                 except Exception:
                     continue  # Skip if we can't create the test file
 
-            params = {
-                "ignore_patterns": [],
-                "exclude_extensions": [],
-                "json_size_threshold": 1024,
-                "max_file_size": 1024 * 1024,
-                "token_limit": 10000,
-            }
+            params = standard_processing_params.copy()
+
             project_info = {
                 "type": "unknown",
                 "language": "mixed",
@@ -216,7 +221,9 @@ class TestPerformanceEdgeCases:
 
             # Process multiple times to check for resource leaks
             for iteration in range(3):
-                with tempfile.NamedTemporaryFile(mode="w", delete=False) as output:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", delete=False, suffix=".txt"
+                ) as output:
                     output_path = output.name
 
                 try:
@@ -226,11 +233,14 @@ class TestPerformanceEdgeCases:
                         )
 
                     # Verify each iteration produces valid output
-                    with open(output_path, "r") as f:
+                    with open(output_path, "r", encoding="utf-8") as f:
                         content = f.read()
                         assert "<codebase>" in content
                         assert "</codebase>" in content
 
                 finally:
                     if os.path.exists(output_path):
-                        os.unlink(output_path)
+                        try:
+                            os.unlink(output_path)
+                        except:
+                            pass  # Ignore Windows cleanup errors

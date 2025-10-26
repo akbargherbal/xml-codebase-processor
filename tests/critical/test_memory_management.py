@@ -89,7 +89,7 @@ class DataProcessor:
             initial_memory = process.memory_info().rss
 
             params = {
-                "ignore_patterns": [],
+                "include": [],
                 "exclude_extensions": [],
                 "json_size_threshold": 2 * 1024 * 1024,
                 "max_file_size": 10 * 1024 * 1024,

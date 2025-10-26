@@ -9,7 +9,7 @@ from xml_directory_processor import process_directory_structured
 class TestXMLOutputIntegrity:
     """Test XML output format and special character handling - Important Priority"""
 
-    def test_xml_special_characters_in_content(self):
+    def test_xml_special_characters_in_content(self, standard_processing_params):
         """Test that special XML characters in file content do not break the output"""
         with tempfile.TemporaryDirectory() as tmpdir:
             test_dir = os.path.join(tmpdir, "src")
@@ -20,13 +20,9 @@ class TestXMLOutputIntegrity:
             with open(os.path.join(test_dir, "test.txt"), "w") as f:
                 f.write(malicious_content)
 
-            params = {
-                "ignore_patterns": [],
-                "exclude_extensions": [],
-                "json_size_threshold": 1024,
-                "max_file_size": 1024 * 1024,
-                "token_limit": 10000,
-            }
+            # Use standard params from fixture
+            params = standard_processing_params.copy()
+
             project_info = {
                 "type": "unknown",
                 "language": "mixed",
@@ -48,20 +44,16 @@ class TestXMLOutputIntegrity:
                 assert "<file path=" in content
                 assert malicious_content in content
 
-    def test_xml_structure_with_unicode_filenames(self):
+    def test_xml_structure_with_unicode_filenames(self, standard_processing_params):
         """Test XML output with unicode characters in filenames"""
         with tempfile.TemporaryDirectory() as tmpdir:
             unicode_file = os.path.join(tmpdir, "测试_αβγ.py")
             with open(unicode_file, "w", encoding="utf-8") as f:
                 f.write("print('unicode test')")
 
-            params = {
-                "ignore_patterns": [],
-                "exclude_extensions": [],
-                "json_size_threshold": 1024,
-                "max_file_size": 1024 * 1024,
-                "token_limit": 10000,
-            }
+            # Use standard params from fixture
+            params = standard_processing_params.copy()
+
             project_info = {
                 "type": "python",
                 "language": "python",
@@ -81,20 +73,16 @@ class TestXMLOutputIntegrity:
                 assert "测试_αβγ.py" in content
                 assert "<codebase>" in content and "</codebase>" in content
 
-    def test_xml_well_formedness_parsing(self):
+    def test_xml_well_formedness_parsing(self, standard_processing_params):
         """Test that output can be parsed as valid XML structure"""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test file
             with open(os.path.join(tmpdir, "test.py"), "w") as f:
                 f.write("print('hello')")
 
-            params = {
-                "ignore_patterns": [],
-                "exclude_extensions": [],
-                "json_size_threshold": 1024,
-                "max_file_size": 1024 * 1024,
-                "token_limit": 10000,
-            }
+            # Use standard params from fixture
+            params = standard_processing_params.copy()
+
             project_info = {
                 "type": "python",
                 "language": "python",
